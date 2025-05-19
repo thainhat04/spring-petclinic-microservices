@@ -65,14 +65,15 @@ pipeline {
                                     --build-arg EXPOSED_PORT=${servicePort} \
                                     -f ./docker/Dockerfile ./docker
 
-                                docker tag ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} ${DOCKER_IMAGE_NAME}-${serviceName}:latest
+                                docker tag ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} \
+                                           ${DOCKER_IMAGE_NAME}-${serviceName}:latest
                             """
 
                             sh "rm docker/${serviceName}.jar"
                         }
 
-                        writeFile file: 'changed-services.txt', text: changedServices*.name.join('
-')
+                        writeFile file: 'changed-services.txt',
+                                  text: changedServices*.name.join('\n')
                     }
                 }
             }
@@ -86,11 +87,14 @@ pipeline {
                 script {
                     echo "🔐 Logging in to Docker Hub"
                     sh """
-                        docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW} https://index.docker.io/v1/
+                        docker login -u ${DOCKERHUB_CREDENTIALS_USR} \
+                                     -p ${DOCKERHUB_CREDENTIALS_PSW} https://index.docker.io/v1/
                     """
 
-                    def changedServices = readFile('changed-services.txt').split('
-').findAll { it }
+                    def changedServices = readFile('changed-services.txt')
+                                          .split('\n')
+                                          .findAll { it }
+
                     for (service in changedServices) {
                         sh """
                             docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}
@@ -106,10 +110,15 @@ pipeline {
                 expression { fileExists('changed-services.txt') }
             }
             steps {
-                withCredentials([usernamePassword(credentialsId: 'gitops-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'gitops-cred',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_PASS'
+                )]) {
                     script {
-                        def changedServices = readFile('changed-services.txt').split('
-').findAll { it }
+                        def changedServices = readFile('changed-services.txt')
+                                              .split('\n')
+                                              .findAll { it }
                         def imagePrefix = "thainhat104/spring-petclinic"
 
                         sh """
