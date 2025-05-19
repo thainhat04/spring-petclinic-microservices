@@ -5,7 +5,6 @@ pipeline {
         PROJECT_NAME = 'spring-petclinic'
         DOCKER_IMAGE_NAME = "thainhat104/${PROJECT_NAME}"
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-cred')
-        GITOPS_CREDENTIALS = credentials('gitops-cred')
         BRANCH_NAME = "${env.BRANCH_NAME}"
         COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
     }
@@ -72,7 +71,8 @@ pipeline {
                             sh "rm docker/${serviceName}.jar"
                         }
 
-                        writeFile file: 'changed-services.txt', text: changedServices*.name.join('\n')
+                        writeFile file: 'changed-services.txt', text: changedServices*.name.join('
+')
                     }
                 }
             }
@@ -89,7 +89,8 @@ pipeline {
                         docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW} https://index.docker.io/v1/
                     """
 
-                    def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
+                    def changedServices = readFile('changed-services.txt').split('
+').findAll { it }
                     for (service in changedServices) {
                         sh """
                             docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}
@@ -105,32 +106,33 @@ pipeline {
                 expression { fileExists('changed-services.txt') }
             }
             steps {
-                script {
-                    def GIT_USER = "${GITOPS_CREDENTIALS_USR}"
-                    def GIT_PASS = "${GITOPS_CREDENTIALS_PSW}"
-                    def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
-                    def imagePrefix = "thainhat104/spring-petclinic"
+                withCredentials([usernamePassword(credentialsId: 'gitops-cred', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PASS')]) {
+                    script {
+                        def changedServices = readFile('changed-services.txt').split('
+').findAll { it }
+                        def imagePrefix = "thainhat104/spring-petclinic"
 
-                    sh """
-                        git config --global user.name "jenkins"
-                        git config --global user.email "ci@jenkins.com"
-                        rm -rf petclinic-manifests
-                        git clone https://${GIT_USER}:${GIT_PASS}@github.com/Vanlinh042004/petclinic-manifests.git
-                    """
-
-                    for (service in changedServices) {
-                        def yamlFile = "petclinic-manifests/dev/${service}.yaml"
                         sh """
-                            sed -i 's|image: ${imagePrefix}-${service}:.*|image: ${imagePrefix}-${service}:${COMMIT_ID}|' ${yamlFile}
+                            git config --global user.name "jenkins"
+                            git config --global user.email "ci@jenkins.com"
+                            rm -rf petclinic-manifests
+                            git clone https://${GIT_USER}:${GIT_PASS}@github.com/Vanlinh042004/petclinic-manifests.git
+                        """
+
+                        for (service in changedServices) {
+                            def yamlFile = "petclinic-manifests/dev/${service}.yaml"
+                            sh """
+                                sed -i 's|image: ${imagePrefix}-${service}:.*|image: ${imagePrefix}-${service}:${COMMIT_ID}|' ${yamlFile}
+                            """
+                        }
+
+                        sh """
+                            cd petclinic-manifests
+                            git add .
+                            git commit -m "🔄 Update image tags to ${COMMIT_ID} by Jenkins"
+                            git push
                         """
                     }
-
-                    sh """
-                        cd petclinic-manifests
-                        git add .
-                        git commit -m "🔄 Update image tags to ${COMMIT_ID} by Jenkins"
-                        git push
-                    """
                 }
             }
         }
