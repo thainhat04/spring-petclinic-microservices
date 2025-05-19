@@ -5,6 +5,7 @@ pipeline {
         PROJECT_NAME = 'spring-petclinic'
         DOCKER_IMAGE_NAME = "thainhat104/${PROJECT_NAME}"
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-cred')
+        GITOPS_CREDENTIALS = credentials('gitops-cred')
         BRANCH_NAME = "${env.BRANCH_NAME}"
         COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
     }
@@ -83,20 +84,53 @@ pipeline {
             }
             steps {
                 script {
-                    echo "🔐 Logging in to Docker Hub as user: ${DOCKERHUB_CREDENTIALS_USR}"
+                    echo "🔐 Logging in to Docker Hub"
                     sh """
                         docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW} https://index.docker.io/v1/
-                        docker info
-                        docker images
                     """
 
                     def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
                     for (service in changedServices) {
                         sh """
                             docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}
-                            docker push ${DOCKER_IMAGE_NAME}-${service}:latest  
+                            docker push ${DOCKER_IMAGE_NAME}-${service}:latest
                         """
                     }
+                }
+            }
+        }
+
+        stage('Update YAML in GitOps repo') {
+            when {
+                expression { fileExists('changed-services.txt') }
+            }
+            steps {
+                script {
+                    def GIT_USER = "${GITOPS_CREDENTIALS_USR}"
+                    def GIT_PASS = "${GITOPS_CREDENTIALS_PSW}"
+                    def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
+                    def imagePrefix = "thainhat104/spring-petclinic"
+
+                    sh """
+                        git config --global user.name "jenkins"
+                        git config --global user.email "ci@jenkins.com"
+                        rm -rf petclinic-manifests
+                        git clone https://${GIT_USER}:${GIT_PASS}@github.com/Vanlinh042004/petclinic-manifests.git
+                    """
+
+                    for (service in changedServices) {
+                        def yamlFile = "petclinic-manifests/dev/${service}.yaml"
+                        sh """
+                            sed -i 's|image: ${imagePrefix}-${service}:.*|image: ${imagePrefix}-${service}:${COMMIT_ID}|' ${yamlFile}
+                        """
+                    }
+
+                    sh """
+                        cd petclinic-manifests
+                        git add .
+                        git commit -m "🔄 Update image tags to ${COMMIT_ID} by Jenkins"
+                        git push
+                    """
                 }
             }
         }
