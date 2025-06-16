@@ -12,7 +12,17 @@ services:
       timeout: 5s
       retries: 10
     ports:
-     - 8888:8888
+      - 8888:8888
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "config-server"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   discovery-server:
     image: thainhat104/spring-petclinic-discovery-server
@@ -30,7 +40,17 @@ services:
       config-server:
         condition: service_healthy
     ports:
-     - 8761:8761
+      - 8761:8761
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "discovery-server"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   customers-service:
     image: thainhat104/spring-petclinic-customers-service
@@ -45,7 +65,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-    - 8081:8081
+      - 8081:8081
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "customers-service"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   visits-service:
     image: thainhat104/spring-petclinic-visits-service
@@ -60,7 +90,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-     - 8082:8082
+      - 8082:8082
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "visits-service"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   vets-service:
     image: thainhat104/spring-petclinic-vets-service
@@ -75,8 +115,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-     - 8083:8083
-
+      - 8083:8083
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "vets-service"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   genai-service:
     image: thainhat104/spring-petclinic-genai-service
@@ -95,8 +144,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-     - 8084:8084
-
+      - 8084:8084
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "genai-service"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api-gateway:
     image: thainhat104/spring-petclinic-api-gateway
@@ -111,7 +169,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-     - 8080:8080
+      - 8080:8080
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "api-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   tracing-server:
     image: openzipkin/zipkin
@@ -121,7 +189,7 @@ services:
         limits:
           memory: 512M
     ports:
-     - 9411:9411
+      - 9411:9411
 
   admin-server:
     image: thainhat104/spring-petclinic-admin-server
@@ -136,7 +204,17 @@ services:
       discovery-server:
         condition: service_healthy
     ports:
-     - 9090:9090
+      - 9090:9090
+    volumes:
+      - ./logs:/logs
+    labels:
+      logging: "promtail"
+      service.name: "admin-server"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   ## Grafana / Prometheus
 
@@ -148,7 +226,7 @@ services:
         limits:
           memory: 256M
     ports:
-    - 3030:3030
+      - 3030:3030
     depends_on:
       - prometheus-server
       - loki
@@ -162,8 +240,8 @@ services:
         limits:
           memory: 256M
     ports:
-    - 9091:9090
-    
+      - 9091:9090
+
   loki:
     build: ./docker/loki
     container_name: loki
@@ -182,7 +260,7 @@ services:
       - ./docker/loki/data/boltdb-shipper-cache:/loki/boltdb-shipper-cache
       - ./docker/loki/data/compactor:/loki/compactor
       - ./docker/loki/data/rules:/loki/rules
-    
+
   promtail:
     build: ./docker/promtail
     container_name: promtail
@@ -191,12 +269,15 @@ services:
         limits:
           memory: 256M
     volumes:
-      - ${USERPROFILE}/.docker/containers:/var/lib/docker/containers:ro
-      - ${USERPROFILE}/AppData/Local/Docker/log:/var/log/docker:ro
-      - C:/logs:/logs
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./logs:/logs:ro
+      - ./promtail.yml:/etc/promtail/config.yml:ro
     depends_on:
       - loki
+    labels:
+      logging: "promtail"
+      service.name: "promtail"
 
 volumes:
   loki-data:

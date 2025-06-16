@@ -3,4 +3,61 @@
     <include resource="org/springframework/boot/logging/logback/base.xml"/>
     <!-- Required for Loglevel managment into the Spring Petclinic Admin Server-->
     <jmxConfigurator/>
+    
+    <!-- File appender for Promtail to collect logs -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/spring-petclinic/genai-service.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>/logs/spring-petclinic/genai-service.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp/>
+                <logLevel/>
+                <loggerName/>
+                <mdc/>
+                <message/>
+                <stackTrace/>
+                <pattern>
+                    <pattern>
+                        {
+                            "service": "genai-service",
+                            "traceId": "%X{traceId:-}",
+                            "spanId": "%X{spanId:-}"
+                        }
+                    </pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+    
+    <!-- Console appender với JSON format -->
+    <appender name="STDOUT_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp/>
+                <logLevel/>
+                <loggerName/>
+                <mdc/>
+                <message/>
+                <stackTrace/>
+                <pattern>
+                    <pattern>
+                        {
+                            "service": "genai-service",
+                            "traceId": "%X{traceId:-}",
+                            "spanId": "%X{spanId:-}"
+                        }
+                    </pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+    
+    <root level="INFO">
+        <appender-ref ref="STDOUT_JSON"/>
+        <appender-ref ref="FILE"/>
+    </root>
 </configuration>
