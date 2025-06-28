@@ -1,18 +1,29 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Branch cần build')
+    }
+
     environment {
         PROJECT_NAME = 'spring-petclinic'
         DOCKER_IMAGE_NAME = "thainhat104/${PROJECT_NAME}"
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-cred')
-        BRANCH_NAME = "${env.BRANCH_NAME}"
-        COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
     }
 
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: "${params.BRANCH_TO_BUILD}", url: 'git@github.com:spring-petclinic/spring-petclinic-microservices.git'
+            }
+        }
+
+        stage('Get Commit ID') {
+            steps {
+                script {
+                    COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.COMMIT_ID = COMMIT_ID
+                }
             }
         }
 
@@ -22,7 +33,7 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        stage('Detect & Build Changed Services') {
             steps {
                 script {
                     def services = [
@@ -50,7 +61,7 @@ pipeline {
                     }
 
                     if (changedServices.isEmpty()) {
-                        echo '✅ Không có service nào thay đổi. Bỏ qua bước Docker build.'
+                        echo '✅ Không có service nào thay đổi. Bỏ qua Docker build.'
                     } else {
                         for (service in changedServices) {
                             def serviceName = service.name
@@ -83,18 +94,13 @@ pipeline {
             }
             steps {
                 script {
-                    echo "🔐 Logging in to Docker Hub as user: ${DOCKERHUB_CREDENTIALS_USR}"
-                    sh """
-                        docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW} https://index.docker.io/v1/
-                        docker info
-                        docker images
-                    """
-
+                    sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
                     def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
+
                     for (service in changedServices) {
                         sh """
                             docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}
-                            docker push ${DOCKER_IMAGE_NAME}-${service}:latest  
+                            docker push ${DOCKER_IMAGE_NAME}-${service}:latest
                         """
                     }
                 }
