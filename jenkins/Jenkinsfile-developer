@@ -96,7 +96,7 @@ spec:
                           sh "kubectl apply -f ${service.name}.yaml"
 
                           def nodePort = 30000 + (service.port % 1000)
-                          def ip = sh(script: "minikube ip", returnStdout: true).trim()
+                          def ip =  sh(script: "kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}'", returnStdout: true).trim()
 
                           echo "${service.name} is available at: http://${ip}:${nodePort}"
                         }
