@@ -23,19 +23,12 @@ pipeline {
         stage('Get Commit ID') {
             steps {
                 script {
-                    COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                    env.COMMIT_ID = COMMIT_ID
+                    env.COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                 }
             }
         }
 
-        stage('Build & Test') {
-            steps {
-                sh './mvnw clean package -DskipTests'
-            }
-        }
-
-        stage('Detect & Build Changed Services') {
+        stage('Detect Changed Services') {
             steps {
                 script {
                     def services = [
@@ -53,7 +46,7 @@ pipeline {
                     for (service in services) {
                         def serviceDir = "${PROJECT_NAME}-${service.name}"
                         def isChanged = sh(
-                            script: "git diff --name-only origin/main...HEAD | grep -q '^${serviceDir}/'",
+                            script: "git diff --name-only HEAD^ HEAD | grep -q '^${serviceDir}/'",
                             returnStatus: true
                         ) == 0
 
@@ -63,28 +56,55 @@ pipeline {
                     }
 
                     if (changedServices.isEmpty()) {
-                        echo '✅ Không có service nào thay đổi. Bỏ qua Docker build.'
+                        echo '✅ Không có service nào thay đổi. Bỏ qua build & Docker.'
                     } else {
-                        for (service in changedServices) {
-                            def serviceName = service.name
-                            def servicePort = service.port
-
-                            def jarFile = findFiles(glob: "${PROJECT_NAME}-${serviceName}/target/*.jar")[0].path
-                            sh "cp ${jarFile} docker/${serviceName}.jar"
-
-                            sh """
-                                docker build -t ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} \
-                                    --build-arg ARTIFACT_NAME=${serviceName} \
-                                    --build-arg EXPOSED_PORT=${servicePort} \
-                                    -f ./docker/Dockerfile ./docker
-
-                                docker tag ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} ${DOCKER_IMAGE_NAME}-${serviceName}:latest
-                            """
-
-                            sh "rm docker/${serviceName}.jar"
-                        }
-
                         writeFile file: 'changed-services.txt', text: changedServices*.name.join('\n')
+                        writeJSON file: 'changed-services-meta.json', json: changedServices
+                    }
+                }
+            }
+        }
+
+        stage('Build Changed Services') {
+            when {
+                expression { fileExists('changed-services.txt') }
+            }
+            steps {
+                script {
+                    def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
+                    def modules = changedServices.collect { "${PROJECT_NAME}-${it}" }.join(',')
+
+                    echo "📦 Building modules: ${modules}"
+                    sh "./mvnw clean install -DskipTests -pl ${modules} -am"
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            when {
+                expression { fileExists('changed-services-meta.json') }
+            }
+            steps {
+                script {
+                    def services = readJSON file: 'changed-services-meta.json'
+
+                    for (service in services) {
+                        def serviceName = service.name
+                        def servicePort = service.port
+                        def jarFile = findFiles(glob: "${PROJECT_NAME}-${serviceName}/target/*.jar")[0].path
+
+                        sh "cp ${jarFile} docker/${serviceName}.jar"
+
+                        sh """
+                            docker build -t ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} \
+                                --build-arg ARTIFACT_NAME=${serviceName} \
+                                --build-arg EXPOSED_PORT=${servicePort} \
+                                -f ./docker/Dockerfile ./docker
+
+                            docker tag ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} ${DOCKER_IMAGE_NAME}-${serviceName}:latest
+                        """
+
+                        sh "rm docker/${serviceName}.jar"
                     }
                 }
             }
@@ -96,9 +116,9 @@ pipeline {
             }
             steps {
                 script {
-                    sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
                     def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
 
+                    sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
                     for (service in changedServices) {
                         sh """
                             docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}

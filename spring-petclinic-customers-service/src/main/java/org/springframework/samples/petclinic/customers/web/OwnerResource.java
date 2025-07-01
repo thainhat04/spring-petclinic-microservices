@@ -74,6 +74,7 @@ class OwnerResource {
      */
     @GetMapping
     public List<Owner> findAll() {
+        log.info("Retrieving all owners");
         return ownerRepository.findAll();
     }
 
