@@ -14,7 +14,9 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: "${params.BRANCH_TO_BUILD}", url: 'git@github.com:spring-petclinic/spring-petclinic-microservices.git'
+                git branch: "${params.BRANCH_TO_BUILD}",
+                    url: 'https://github.com/thainhat04/spring-petclinic-microservices.git',
+                    credentialsId: 'github-cred'
             }
         }
 
