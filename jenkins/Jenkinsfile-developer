@@ -54,42 +54,312 @@ pipeline {
                             ).trim()
                         }
                         
-                        // def tag = service.branch == 'main' ? 'latest' : service.branch
-                        def yaml = """
+                        def yaml = generateServiceYaml(service, tag)
+
+                        
+
+                        writeFile file: "${service.name}.yaml", text: yaml
+
+                        withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
+
+                          sh "kubectl apply -f ${service.name}.yaml"
+
+
+
+                          // Wait for deployment to be ready
+
+                          sh "kubectl rollout status deployment/${service.name} -n ${NAMESPACE} --timeout=300s"
+
+
+
+                          def nodePort = 30000 + (service.port % 1000)
+
+                          def ip = sh(script: "kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type==\"InternalIP\")].address}'", returnStdout: true).trim()
+
+
+
+                          echo "${service.name} is available at: http://${ip}:${nodePort}"
+
+                          
+
+                          // Add delay between services for proper startup
+
+                          if (service.name in ['discovery-server', 'admin-server']) {
+
+                              echo "Waiting for ${service.name} to fully start..."
+
+                              sleep 30
+
+                          }
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+        }
+
+    }
+
+}
+
+
+
+def generateServiceYaml(service, tag) {
+
+    def commonEnvVars = """
+
+            - name: SPRING_PROFILES_ACTIVE
+
+              value: kubernetes
+
+            - name: EUREKA_INSTANCE_HOSTNAME
+
+              value: "${service.name}"
+
+            - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+
+              value: "false"
+
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+
+              value: "*"
+
+            - name: MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS
+
+              value: "always"
+
+            - name: JAVA_OPTS
+
+              value: "-Xms64m -Xmx128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+"""
+
+
+
+    def eurekaClientEnvVars = """
+
+            - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+
+              value: http://discovery-server:8761/eureka/
+
+            - name: EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS
+
+              value: "30"
+
+            - name: EUREKA_INSTANCE_LEASE_EXPIRATION_DURATION_IN_SECONDS
+
+              value: "90"
+
+"""
+
+
+
+    def adminClientEnvVars = """
+
+            - name: SPRING_BOOT_ADMIN_CLIENT_URL
+
+              value: "http://admin-server:9090"
+
+            - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_SERVICE_HOST_TYPE
+
+              value: "ip"
+
+            - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_MANAGEMENT_URL
+
+              value: "http://${service.name}:${service.port}/actuator"
+
+            - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_HEALTH_URL
+
+              value: "http://${service.name}:${service.port}/actuator/health"
+
+            - name: SPRING_BOOT_ADMIN_CLIENT_INSTANCE_SERVICE_URL
+
+              value: "http://${service.name}:${service.port}/"
+
+            - name: SPRING_APPLICATION_NAME
+
+              value: "${service.name}"
+
+"""
+
+
+
+    def envVars = commonEnvVars
+
+    
+
+    // Add specific environment variables based on service type
+
+    switch (service.name) {
+
+        case 'discovery-server':
+
+            // Discovery server doesn't need Eureka client config
+
+            break
+
+        case 'admin-server':
+
+            envVars += eurekaClientEnvVars
+
+            envVars += """
+
+            - name: SPRING_BOOT_ADMIN_DISCOVERY_ENABLED
+
+              value: "true"
+
+            - name: SPRING_BOOT_ADMIN_DISCOVERY_CONVERTER_MANAGEMENT_CONTEXT_PATH
+
+              value: "/actuator"
+
+"""
+
+            break
+
+        case 'config-server':
+
+            // Config server typically doesn't register with Eureka
+
+            break
+
+        default:
+
+            // All other microservices
+
+            envVars += eurekaClientEnvVars + adminClientEnvVars
+
+    }
+
+
+
+    def healthCheckPath = service.name == 'config-server' ? '/actuator/health' : '/actuator/health'
+
+    def initialDelaySeconds = service.name == 'discovery-server' ? 90 : (service.name == 'admin-server' ? 120 : 90)
+
+
+
+    return """
+
 apiVersion: apps/v1
+
 kind: Deployment
+
 metadata:
+
   name: ${service.name}
+
   namespace: ${NAMESPACE}
+
 spec:
+
   replicas: 1
+
   selector:
+
     matchLabels:
+
       app: ${service.name}
+
   template:
+
     metadata:
+
       labels:
+
         app: ${service.name}
+
     spec:
+
       containers:
+
         - name: ${service.name}
+
           image: ${IMAGE_REPO}-${service.name}:${tag}
+
           ports:
+
             - containerPort: ${service.port}
+
+          env:${envVars}
+
+          resources:
+
+            requests:
+
+              memory: "128Mi"
+
+              cpu: "100m"
+
+            limits:
+
+              memory: "256Mi"
+
+              cpu: "500m"
+
+          livenessProbe:
+
+            httpGet:
+
+              path: ${healthCheckPath}
+
+              port: ${service.port}
+
+            initialDelaySeconds: ${initialDelaySeconds}
+
+            periodSeconds: 30
+
+            timeoutSeconds: 10
+
+            failureThreshold: 3
+
+          readinessProbe:
+
+            httpGet:
+
+              path: ${healthCheckPath}
+
+              port: ${service.port}
+
+            initialDelaySeconds: ${initialDelaySeconds / 2}
+
+            periodSeconds: 10
+
+            timeoutSeconds: 5
+
+            failureThreshold: 3
+
 ---
+
 apiVersion: v1
+
 kind: Service
+
 metadata:
+
   name: ${service.name}
+
   namespace: ${NAMESPACE}
+
 spec:
+
   selector:
+
     app: ${service.name}
+
   type: NodePort
+
   ports:
+
     - port: ${service.port}
+
       targetPort: ${service.port}
+
       nodePort: ${30000 + (service.port % 1000)}
+
 """
                         writeFile file: "${service.name}.yaml", text: yaml
                         withEnv(["KUBECONFIG=/var/lib/jenkins/.kube/config"]) {
