@@ -76,6 +76,11 @@ spec:
           image: ${IMAGE_REPO}-${service.name}:${tag}
           ports:
             - containerPort: ${service.port}
+          env:
+            - name: EUREKA_INSTANCE_PREFERIPADDRESS
+              value: "true"
+            - name: SPRING_PROFILES_ACTIVE
+              value: docker
 ---
 apiVersion: v1
 kind: Service
