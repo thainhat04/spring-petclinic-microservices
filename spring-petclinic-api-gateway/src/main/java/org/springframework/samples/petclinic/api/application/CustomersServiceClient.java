@@ -40,4 +40,4 @@ public class CustomersServiceClient {
             .retrieve()
             .bodyToMono(OwnerDetails.class);
     }
-}
+} 

@@ -23,7 +23,7 @@ import jakarta.persistence.*;
  * @author Juergen Hoeller
  * @author Ramazan Sakin
  */
-
+ 
 @Entity
 @Table(name = "specialties")
 public class Specialty {
