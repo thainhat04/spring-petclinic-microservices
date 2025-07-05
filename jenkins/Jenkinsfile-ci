@@ -68,8 +68,12 @@ pipeline {
                     def modules = env.CHANGED_MODULES ? env.CHANGED_MODULES.split(',') : []
                     def imageTag = env.COMMIT_HASH
                     def gitTag = sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim()
-                    sh "git fetch origin main:refs/remotes/origin/main --no-tags"
-                    def isMainBranch = sh(script: "git branch -r --contains HEAD | grep 'origin/main' || true", returnStdout: true).trim() != ""
+                    sh "git fetch origin main --no-tags"
+
+                    def currentHash = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+                    def mainHash = sh(script: "git rev-parse origin/main", returnStdout: true).trim()
+                    def isMainBranch = currentHash == mainHash
+
                     echo "${gitTag}, ${isMainBranch}"
 
                     if (gitTag != "" && isMainBranch) {
