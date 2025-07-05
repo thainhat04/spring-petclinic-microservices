@@ -2,12 +2,7 @@ pipeline {
     agent any
 
     options {
-        // Clean before build
         skipDefaultCheckout(true)
-    }
-
-    tools {
-        maven 'Maven 3'
     }
 
     environment {
@@ -22,11 +17,8 @@ pipeline {
         stage('Check SCM') {
             steps {
                 cleanWs()
-
                 checkout scm
-
                 script {
-                    // Get the first 8 characters of the SHA Git Commit
                     def gitCommitHash = sh(script: "git rev-parse --short=8 HEAD", returnStdout: true).trim()
                     env.COMMIT_HASH = gitCommitHash
                 }
@@ -40,16 +32,12 @@ pipeline {
 
                     if (env.CHANGE_ID) {
                         branch_name = "${env.CHANGE_TARGET}"
-
-                        // Fetch main branch if it is a Pull Request
                         sh("git fetch origin ${branch_name}:${branch_name} --no-tags")
-                    }
-                    else {
+                    } else {
                         branch_name = 'HEAD~1'
                     }
 
                     def changedFiles = sh(script: "git diff --name-only ${branch_name}", returnStdout: true).trim()
-
                     echo "${changedFiles}"
 
                     def folderList = [
@@ -78,27 +66,20 @@ pipeline {
             steps {
                 script {
                     def modules = env.CHANGED_MODULES ? env.CHANGED_MODULES.split(',') : []
-
                     def imageTag = env.COMMIT_HASH
-
                     def gitTag = sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim()
-
                     sh "git fetch origin main:refs/remotes/origin/main --no-tags"
-
                     def isMainBranch = sh(script: "git branch -r --contains HEAD | grep 'origin/main' || true", returnStdout: true).trim() != ""
-
                     echo "${gitTag}, ${isMainBranch}"
 
                     if (gitTag != "" && isMainBranch) {
                         imageTag = gitTag
-                    }
-                    else if (gitTag == "" && isMainBranch) {
+                    } else if (gitTag == "" && isMainBranch) {
                         imageTag = "latest"
                     }
 
                     env.IMAGE_TAG = imageTag
 
-                    // Service configuration mapping
                     def serviceConfig = [
                         'spring-petclinic-admin-server': [name: 'admin-server', port: 9090],
                         'spring-petclinic-api-gateway': [name: 'api-gateway', port: 8080],
@@ -110,14 +91,12 @@ pipeline {
                     ]
 
                     if (modules.size() > 0) {
-                        // Build and Tag Images for changed modules
                         for (module in modules) {
                             def serviceInfo = serviceConfig[module]
-                            
                             if (serviceInfo) {
                                 echo "Run unit test for: ${module}"
                                 sh "mvn test -pl ${module}"
-                                
+
                                 echo "Building ${module}"
                                 sh "./mvnw clean package -DskipTests -pl ${module} -am"
 
@@ -155,19 +134,19 @@ pipeline {
                     ]
 
                     if (modules.size() > 0) {
-                        sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
+                        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            sh "docker login -u ${DOCKER_USER} -p ${DOCKER_PASS}"
 
-                        for (module in modules) {
-                            def serviceInfo = serviceConfig[module]
-                            
-                            if (serviceInfo) {
-                                def imageName = "${DOCKERHUB_USER}/${PROJECT_NAME}-${serviceInfo.name}:${env.IMAGE_TAG}"
-                                echo "Pushing Docker image: ${imageName}"
-                                sh "docker push ${imageName}"
+                            for (module in modules) {
+                                def serviceInfo = serviceConfig[module]
+                                if (serviceInfo) {
+                                    def imageName = "${DOCKERHUB_USER}/${PROJECT_NAME}-${serviceInfo.name}:${env.IMAGE_TAG}"
+                                    echo "Pushing Docker image: ${imageName}"
+                                    sh "docker push ${imageName}"
+                                }
                             }
                         }
-                    } 
-                    else {
+                    } else {
                         echo "No changed modules; skipping Docker push."
                     }
                 }
@@ -177,26 +156,21 @@ pipeline {
         stage('Update Helm Chart for new Tags') {
             when {
                 expression {
-                    // Run if current build is a Git tag
                     return sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim() != ""
                 }
             }
             steps {
                 script {
-                    // Check if the git tag is on the main branch
                     def isMainBranch = sh(script: "git branch -r --contains HEAD | grep 'origin/main' || true", returnStdout: true).trim() != ""
-
                     if (!isMainBranch) {
                         echo "Tag '${env.IMAGE_TAG}' is not on 'main' branch. Skipping Helm update."
                         return
                     }
 
                     def modules = env.CHANGED_MODULES ? env.CHANGED_MODULES.split(',') : []
-
                     if (modules.size() > 0) {
                         echo "Triggering Helm chart update for new tag '${env.IMAGE_TAG}' and changed modules: ${modules.join(', ')}"
 
-                        // Map module names to helm parameters
                         def helmParams = [
                             string(name: 'ADMIN_SERVER_TAG', value: modules.contains('spring-petclinic-admin-server') ? env.IMAGE_TAG : 'latest'),
                             string(name: 'API_GATEWAY_TAG', value: modules.contains('spring-petclinic-api-gateway') ? env.IMAGE_TAG : 'latest'),
@@ -217,7 +191,7 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             echo 'Logging out of Docker Hub'
