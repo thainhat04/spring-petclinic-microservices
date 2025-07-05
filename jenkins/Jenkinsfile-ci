@@ -74,7 +74,7 @@ pipeline {
                     def mainHash = sh(script: "git rev-parse origin/main", returnStdout: true).trim()
                     def isMainBranch = currentHash == mainHash
 
-                    echo "${gitTag}, ${isMainBranch}"
+                    echo "Git Tag: ${gitTag}, Is Main Branch: ${isMainBranch}"
 
                     if (gitTag != "" && isMainBranch) {
                         imageTag = gitTag
