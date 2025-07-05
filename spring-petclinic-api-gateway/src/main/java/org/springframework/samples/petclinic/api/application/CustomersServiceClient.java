@@ -40,8 +40,8 @@ public class CustomersServiceClient {
             .bodyToMono(OwnerDetails.class);
     }
 
-    // log 
+    // log the message
     public void log(String message) {
-        System.out.println(message);
+        System.out.println("CustomersServiceClient: " + message);
     }
 }
