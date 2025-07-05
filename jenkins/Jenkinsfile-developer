@@ -49,7 +49,7 @@ pipeline {
                         def tag = 'latest'
                         if (service.branch != 'main') {
                             tag = sh(
-                                script: "git ls-remote ${GIT_REPO} refs/heads/${service.branch} | cut -c1-7",
+                                script: "git ls-remote ${GIT_REPO} refs/heads/${service.branch} | cut -c1-8",
                                 returnStdout: true
                             ).trim()
                         }
