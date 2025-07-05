@@ -118,7 +118,7 @@ pipeline {
             }
         }
 
-                stage('Push Docker Images') {
+       stage('Push Docker Images') {
             steps {
                 script {
                     def modules = env.CHANGED_MODULES ? env.CHANGED_MODULES.split(',') : []
@@ -135,9 +135,8 @@ pipeline {
 
                     if (modules.size() > 0) {
                         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                            sh """
-                                echo '${DOCKER_PASS}' | docker login -u '${DOCKER_USER}' --password-stdin
-                            """
+                            // ✅ FIXED: use single-line shell for docker login
+                            sh "echo ${env.DOCKER_PASS} | docker login -u ${env.DOCKER_USER} --password-stdin"
 
                             for (module in modules) {
                                 def serviceInfo = serviceConfig[module]
