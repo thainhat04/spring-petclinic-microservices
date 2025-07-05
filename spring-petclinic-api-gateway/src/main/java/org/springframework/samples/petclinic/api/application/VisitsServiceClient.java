@@ -48,7 +48,7 @@ public class VisitsServiceClient {
     }
 
     private String joinIds(List<Integer> petIds) {
-        System.out.println("VisitsServiceClient: " + petIds);
+        System
         return petIds.stream().map(Object::toString).collect(joining(","));
     }
 
