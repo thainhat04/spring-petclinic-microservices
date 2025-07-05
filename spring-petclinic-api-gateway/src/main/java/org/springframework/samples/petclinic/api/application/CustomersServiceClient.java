@@ -39,4 +39,9 @@ public class CustomersServiceClient {
             .retrieve()
             .bodyToMono(OwnerDetails.class);
     }
+
+    // log 
+    public void log(String message) {
+        System.out.println(message);
+    }
 }
