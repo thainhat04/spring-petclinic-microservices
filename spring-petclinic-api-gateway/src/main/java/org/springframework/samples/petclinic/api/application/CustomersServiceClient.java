@@ -12,8 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- * 
- * 
+
  */
 package org.springframework.samples.petclinic.api.application;
 
@@ -39,5 +38,10 @@ public class CustomersServiceClient {
             .uri("http://customers-service/owners/{ownerId}", ownerId)
             .retrieve()
             .bodyToMono(OwnerDetails.class);
+    }
+
+    // log the message
+    public void log(String message) {
+        System.out.println("CustomersServiceClient: " + message);
     }
 }
