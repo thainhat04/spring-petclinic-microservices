@@ -7,8 +7,8 @@ pipeline {
 
     environment {
         PROJECT_NAME = 'spring-petclinic'
-        DOCKER_IMAGE_NAME = "thainhat104/${PROJECT_NAME}"
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-cred')
+        DOCKERHUB_USER = "thainhat104"
     }
 
     stages {
@@ -23,19 +23,12 @@ pipeline {
         stage('Get Commit ID') {
             steps {
                 script {
-                    COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                    env.COMMIT_ID = COMMIT_ID
+                    env.COMMIT_ID = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                 }
             }
         }
 
-        stage('Build & Test') {
-            steps {
-                sh './mvnw clean package -DskipTests'
-            }
-        }
-
-        stage('Detect & Build Changed Services') {
+        stage('Build All Services') {
             steps {
                 script {
                     def services = [
@@ -48,61 +41,44 @@ pipeline {
                         [name: 'genai-service', port: 8084]
                     ]
 
-                    def changedServices = []
-
                     for (service in services) {
-                        def serviceDir = "${PROJECT_NAME}-${service.name}"
-                        def isChanged = sh(
-                            script: "git diff --name-only origin/main...HEAD | grep -q '^${serviceDir}/'",
-                            returnStatus: true
-                        ) == 0
+                        def modulePath = "${PROJECT_NAME}-${service.name}"
 
-                        if (isChanged) {
-                            changedServices << service
-                        }
-                    }
+                        echo "\uD83D\uDCC6 Building ${modulePath}"
+                        sh "./mvnw clean package -DskipTests -pl ${modulePath} -am"
 
-                    if (changedServices.isEmpty()) {
-                        echo '✅ Không có service nào thay đổi. Bỏ qua Docker build.'
-                    } else {
-                        for (service in changedServices) {
-                            def serviceName = service.name
-                            def servicePort = service.port
+                        def jarFile = findFiles(glob: "${modulePath}/target/*.jar")[0].path
+                        sh "cp ${jarFile} docker/${service.name}.jar"
 
-                            def jarFile = findFiles(glob: "${PROJECT_NAME}-${serviceName}/target/*.jar")[0].path
-                            sh "cp ${jarFile} docker/${serviceName}.jar"
+                        def imageTag = (params.BRANCH_TO_BUILD == 'main') ? 'latest' : env.COMMIT_ID
 
-                            sh """
-                                docker build -t ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} \
-                                    --build-arg ARTIFACT_NAME=${serviceName} \
-                                    --build-arg EXPOSED_PORT=${servicePort} \
-                                    -f ./docker/Dockerfile ./docker
+                        sh """
+                            docker build -t ${DOCKERHUB_USER}/${PROJECT_NAME}-${service.name}:${imageTag} \
+                                --build-arg ARTIFACT_NAME=${service.name} \
+                                --build-arg EXPOSED_PORT=${service.port} \
+                                -f ./docker/Dockerfile ./docker
+                        """
 
-                                docker tag ${DOCKER_IMAGE_NAME}-${serviceName}:${COMMIT_ID} ${DOCKER_IMAGE_NAME}-${serviceName}:latest
-                            """
-
-                            sh "rm docker/${serviceName}.jar"
-                        }
-
-                        writeFile file: 'changed-services.txt', text: changedServices*.name.join('\n')
+                        sh "rm docker/${service.name}.jar"
                     }
                 }
             }
         }
 
         stage('Docker Push') {
-            when {
-                expression { fileExists('changed-services.txt') }
-            }
             steps {
                 script {
-                    sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
-                    def changedServices = readFile('changed-services.txt').split('\n').findAll { it }
+                    def services = [
+                        'admin-server', 'api-gateway', 'customers-service', 'discovery-server',
+                        'vets-service', 'visits-service', 'genai-service'
+                    ]
+                    def imageTag = (params.BRANCH_TO_BUILD == 'main') ? 'latest' : env.COMMIT_ID
 
-                    for (service in changedServices) {
+                    sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
+
+                    for (service in services) {
                         sh """
-                            docker push ${DOCKER_IMAGE_NAME}-${service}:${COMMIT_ID}
-                            docker push ${DOCKER_IMAGE_NAME}-${service}:latest
+                            docker push ${DOCKERHUB_USER}/${PROJECT_NAME}-${service}:${imageTag}
                         """
                     }
                 }
