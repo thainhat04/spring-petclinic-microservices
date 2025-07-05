@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    parameters {
-        string(name: 'BRANCH_TO_BUILD', defaultValue: 'main', description: 'Branch cần build')
-    }
-
     options {
         // Clean before build
         skipDefaultCheckout(true)
@@ -27,9 +23,7 @@ pipeline {
             steps {
                 cleanWs()
 
-                git branch: "${params.BRANCH_TO_BUILD}",
-                    url: 'https://github.com/thainhat04/spring-petclinic-microservices.git',
-                    credentialsId: 'github-cred'
+                checkout scm
 
                 script {
                     // Get the first 8 characters of the SHA Git Commit
@@ -47,7 +41,7 @@ pipeline {
                     if (env.CHANGE_ID) {
                         branch_name = "${env.CHANGE_TARGET}"
 
-                        // Fetch target branch if it is a Pull Request
+                        // Fetch main branch if it is a Pull Request
                         sh("git fetch origin ${branch_name}:${branch_name} --no-tags")
                     }
                     else {
@@ -89,9 +83,11 @@ pipeline {
 
                     def gitTag = sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim()
 
-                    def isMainBranch = params.BRANCH_TO_BUILD == 'main'
+                    sh "git fetch origin main:refs/remotes/origin/main --no-tags"
 
-                    echo "Git Tag: ${gitTag}, Is Main Branch: ${isMainBranch}"
+                    def isMainBranch = sh(script: "git branch -r --contains HEAD | grep 'origin/main' || true", returnStdout: true).trim() != ""
+
+                    echo "${gitTag}, ${isMainBranch}"
 
                     if (gitTag != "" && isMainBranch) {
                         imageTag = gitTag
@@ -181,13 +177,20 @@ pipeline {
         stage('Update Helm Chart for new Tags') {
             when {
                 expression {
-                    // Run if current build is a Git tag and on main branch
-                    def gitTag = sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim()
-                    return gitTag != "" && params.BRANCH_TO_BUILD == 'main'
+                    // Run if current build is a Git tag
+                    return sh(script: "git describe --tags --exact-match || true", returnStdout: true).trim() != ""
                 }
             }
             steps {
                 script {
+                    // Check if the git tag is on the main branch
+                    def isMainBranch = sh(script: "git branch -r --contains HEAD | grep 'origin/main' || true", returnStdout: true).trim() != ""
+
+                    if (!isMainBranch) {
+                        echo "Tag '${env.IMAGE_TAG}' is not on 'main' branch. Skipping Helm update."
+                        return
+                    }
+
                     def modules = env.CHANGED_MODULES ? env.CHANGED_MODULES.split(',') : []
 
                     if (modules.size() > 0) {
