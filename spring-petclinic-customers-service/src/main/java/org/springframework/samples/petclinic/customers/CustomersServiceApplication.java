@@ -31,5 +31,6 @@ public class CustomersServiceApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(CustomersServiceApplication.class, args);
+		System.out.println("CustomersServiceApplication started");
 	}
 }
