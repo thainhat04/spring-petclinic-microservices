@@ -28,7 +28,7 @@ pipeline {
             }
         }
 
-        stage('Build All Services') {
+        stage('Build Changed Services') {
             steps {
                 script {
                     def services = [
@@ -41,10 +41,27 @@ pipeline {
                         [name: 'genai-service', port: 8084]
                     ]
 
+                    def changedFilesRaw = sh(
+                        script: """
+                            git rev-parse HEAD~1 >/dev/null 2>&1 && git diff --name-only HEAD~1 HEAD || git diff --name-only HEAD
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    def changedFiles = changedFilesRaw.split("\n") as List
+
+                    def builtServices = []
+
                     for (service in services) {
                         def modulePath = "${PROJECT_NAME}-${service.name}"
+                        def isChanged = changedFiles.any { it.startsWith("${modulePath}/") }
 
-                        echo "\uD83D\uDCC6 Building ${modulePath}"
+                        if (!isChanged) {
+                            echo "⏭ Skip ${service.name}, not changed."
+                            continue
+                        }
+
+                        echo "🔨 Building ${modulePath}"
                         sh "./mvnw clean package -DskipTests -pl ${modulePath} -am"
 
                         def jarFile = findFiles(glob: "${modulePath}/target/*.jar")[0].path
@@ -60,26 +77,29 @@ pipeline {
                         """
 
                         sh "rm docker/${service.name}.jar"
+
+                        builtServices << service.name
                     }
+
+                    // Lưu danh sách service đã build để push sau
+                    env.BUILT_SERVICES = builtServices.join(',')
                 }
             }
         }
 
         stage('Docker Push') {
+            when {
+                expression { env.BUILT_SERVICES?.trim() }
+            }
             steps {
                 script {
-                    def services = [
-                        'admin-server', 'api-gateway', 'customers-service', 'discovery-server',
-                        'vets-service', 'visits-service', 'genai-service'
-                    ]
+                    def services = env.BUILT_SERVICES.split(',')
                     def imageTag = (params.BRANCH_TO_BUILD == 'main') ? 'latest' : env.COMMIT_ID
 
                     sh "docker login -u ${DOCKERHUB_CREDENTIALS_USR} -p ${DOCKERHUB_CREDENTIALS_PSW}"
 
                     for (service in services) {
-                        sh """
-                            docker push ${DOCKERHUB_USER}/${PROJECT_NAME}-${service}:${imageTag}
-                        """
+                        sh "docker push ${DOCKERHUB_USER}/${PROJECT_NAME}-${service}:${imageTag}"
                     }
                 }
             }
